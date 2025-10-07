@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for user service
+  user-db:
+    image: postgres:16-alpine
+    container_name: hub-user-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hub_users_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - user_db_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    networks:
+      - hub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # User Management Service
+  user-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hub-user-service
+    environment:
+      - HTTP_PORT=8080
+      - GRPC_PORT=50051
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - TOKEN_EXPIRATION=10m
+      - DATABASE_URL=postgres://postgres:postgres@user-db:5432/hub_users_db?sslmode=disable
+      - DB_HOST=user-db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=hub_users_db
+      - ENVIRONMENT=development
+    ports:
+      - "8081:8080"  # HTTP port
+      - "50052:50051"  # gRPC port
+    depends_on:
+      user-db:
+        condition: service_healthy
+    networks:
+      - hub-network
+    restart: unless-stopped
+
+volumes:
+  user_db_data:
+
+networks:
+  hub-network:
+    driver: bridge
