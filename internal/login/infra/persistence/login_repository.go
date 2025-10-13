@@ -1,10 +1,10 @@
 package persistence
 
 import (
+	"fmt"
+	"hub-user-service/internal/database"
 	"hub-user-service/internal/login/domain/model"
 	"hub-user-service/internal/login/domain/repository"
-	"hub-user-service/internal/database"
-	"fmt"
 )
 
 type LoginRepository struct {

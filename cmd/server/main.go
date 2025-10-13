@@ -1,71 +1,104 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"os"
-	"os/signal"
-	"syscall"
+
+	"hub-user-service/internal/auth"
+	"hub-user-service/internal/auth/token"
+	"hub-user-service/internal/config"
+	"hub-user-service/internal/database"
+	grpcServer "hub-user-service/internal/grpc"
+	"hub-user-service/internal/grpc/proto"
+	"hub-user-service/internal/login/application/usecase"
+	"hub-user-service/internal/login/infra/persistence"
 
 	"google.golang.org/grpc"
-)
-
-const (
-	defaultGRPCPort = "50051"
-	defaultHTTPPort = "8080"
+	"google.golang.org/grpc/reflection"
 )
 
 func main() {
-	log.Println("Starting Hub User Service...")
+	// Load configuration
+	cfg := config.Load()
+	log.Printf("Starting Hub User Service...")
+	log.Printf("gRPC Port: %s", cfg.GRPCPort)
+	log.Printf("HTTP Port: %s", cfg.HTTPPort)
+	log.Printf("Database URL: %s", maskDatabaseURL(cfg.DatabaseURL))
 
-	// Get configuration from environment
-	grpcPort := getEnv("GRPC_PORT", defaultGRPCPort)
-	httpPort := getEnv("HTTP_PORT", defaultHTTPPort)
-
-	log.Printf("Configuration:")
-	log.Printf("  - gRPC Port: %s", grpcPort)
-	log.Printf("  - HTTP Port: %s", httpPort)
-
-	// Create gRPC server
-	grpcServer := grpc.NewServer()
-
-	// TODO: Register gRPC services here
-	// Example: pb.RegisterAuthServiceServer(grpcServer, &authServer{})
-
-	// Start gRPC server
-	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%s", grpcPort))
-	if err != nil {
-		log.Fatalf("Failed to listen on gRPC port %s: %v", grpcPort, err)
+	// Initialize database connection
+	dbConfig := database.ConnectionConfig{
+		Driver:   "postgres",
+		Host:     getEnvWithDefault("DB_HOST", "localhost"),
+		Port:     getEnvWithDefault("DB_PORT", "5432"),
+		Database: getEnvWithDefault("DB_NAME", "hub_investments"),
+		Username: getEnvWithDefault("DB_USER", "postgres"),
+		Password: getEnvWithDefault("DB_PASSWORD", "postgres"),
+		SSLMode:  getEnvWithDefault("DB_SSLMODE", "disable"),
 	}
 
-	log.Printf("gRPC server listening on port %s", grpcPort)
+	db, err := database.NewConnectionFactory(dbConfig).CreateConnection()
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	log.Println("✅ Database connected successfully")
 
-	// Start gRPC server in a goroutine
-	go func() {
-		if err := grpcServer.Serve(grpcListener); err != nil {
-			log.Fatalf("Failed to serve gRPC: %v", err)
-		}
-	}()
+	// Initialize repositories
+	loginRepository := persistence.NewLoginRepository(db)
+	log.Println("✅ Login repository initialized")
 
-	// TODO: Start HTTP server for health checks and metrics
-	// go startHTTPServer(httpPort)
+	// Initialize use cases
+	loginUsecase := usecase.NewDoLoginUsecase(loginRepository)
+	log.Println("✅ Login use case initialized")
 
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	// Initialize authentication services
+	tokenService := token.NewTokenService()
+	authService := auth.NewAuthService(tokenService)
+	log.Println("✅ Auth service initialized")
 
-	log.Println("Shutting down servers...")
-	grpcServer.GracefulStop()
-	log.Println("Servers stopped")
+	// Initialize gRPC server
+	authGrpcServer := grpcServer.NewAuthServer(loginUsecase, authService)
+	log.Println("✅ gRPC auth server initialized")
+
+	// Create gRPC server with options
+	grpcSrv := grpc.NewServer()
+
+	// Register services
+	proto.RegisterAuthServiceServer(grpcSrv, authGrpcServer)
+	log.Println("✅ AuthService registered")
+
+	// Register reflection service (useful for gRPC clients like grpcurl)
+	reflection.Register(grpcSrv)
+	log.Println("✅ gRPC reflection registered")
+
+	// Start listening
+	listener, err := net.Listen("tcp", cfg.GRPCPort)
+	if err != nil {
+		log.Fatalf("Failed to listen on port %s: %v", cfg.GRPCPort, err)
+	}
+
+	log.Printf("🚀 Hub User Service gRPC server listening on %s", cfg.GRPCPort)
+	log.Println("📡 Ready to accept connections...")
+
+	// Start serving (blocking call)
+	if err := grpcSrv.Serve(listener); err != nil {
+		log.Fatalf("Failed to serve gRPC: %v", err)
+	}
 }
 
-// getEnv gets an environment variable or returns a default value
-func getEnv(key, defaultValue string) string {
+// getEnvWithDefault gets an environment variable or returns a default value
+func getEnvWithDefault(key, defaultValue string) string {
 	value := os.Getenv(key)
 	if value == "" {
 		return defaultValue
 	}
 	return value
+}
+
+// maskDatabaseURL masks sensitive information in database URL for logging
+func maskDatabaseURL(url string) string {
+	if url == "" {
+		return "not configured"
+	}
+	return "***configured***"
 }
