@@ -1,9 +1,9 @@
 package usecase
 
 import (
+	"errors"
 	"hub-user-service/internal/login/domain/model"
 	"hub-user-service/internal/login/domain/repository"
-	"errors"
 )
 
 type IDoLoginUsecase interface {

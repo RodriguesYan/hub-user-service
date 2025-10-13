@@ -1,9 +1,9 @@
 package auth
 
 import (
-	"hub-user-service/internal/auth/token"
 	"errors"
 	"fmt"
+	"hub-user-service/internal/auth/token"
 	"net/http"
 )
 
