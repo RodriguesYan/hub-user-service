@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -10,12 +11,28 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	HTTPPort    string
-	GRPCPort    string
-	JWTSecret   string
-	RedisHost   string
-	RedisPort   string
+	// Server Configuration
+	HTTPPort string
+	GRPCPort string
+
+	// JWT Configuration (MUST match monolith for token compatibility)
+	JWTSecret string
+
+	// Database Configuration
 	DatabaseURL string
+	DBHost      string
+	DBPort      string
+	DBName      string
+	DBUser      string
+	DBPassword  string
+	DBSSLMode   string
+
+	// Redis Configuration (optional for caching)
+	RedisHost string
+	RedisPort string
+
+	// Environment
+	Environment string
 }
 
 var (
@@ -35,18 +52,49 @@ func Load() *Config {
 		}
 
 		instance = &Config{
-			HTTPPort:    getEnvWithDefault("HTTP_PORT", "localhost:8080"),
-			GRPCPort:    getEnvWithDefault("GRPC_PORT", "localhost:50051"),
-			JWTSecret:   getEnvWithDefault("MY_JWT_SECRET", "default-secret-key-change-in-production"),
-			RedisHost:   getEnvWithDefault("REDIS_HOST", "localhost"),
-			RedisPort:   getEnvWithDefault("REDIS_PORT", "6379"),
+			// Server Configuration
+			HTTPPort: getEnvWithDefault("HTTP_PORT", "localhost:8080"),
+			GRPCPort: getEnvWithDefault("GRPC_PORT", "localhost:50051"),
+
+			// JWT Configuration (MUST match monolith)
+			JWTSecret: getEnvWithDefault("MY_JWT_SECRET", "default-secret-key-change-in-production"),
+
+			// Database Configuration
 			DatabaseURL: getEnvWithDefault("DATABASE_URL", ""),
+			DBHost:      getEnvWithDefault("DB_HOST", "localhost"),
+			DBPort:      getEnvWithDefault("DB_PORT", "5432"),
+			DBName:      getEnvWithDefault("DB_NAME", "hub_investments"),
+			DBUser:      getEnvWithDefault("DB_USER", "postgres"),
+			DBPassword:  getEnvWithDefault("DB_PASSWORD", "postgres"),
+			DBSSLMode:   getEnvWithDefault("DB_SSLMODE", "disable"),
+
+			// Redis Configuration (optional)
+			RedisHost: getEnvWithDefault("REDIS_HOST", "localhost"),
+			RedisPort: getEnvWithDefault("REDIS_PORT", "6379"),
+
+			// Environment
+			Environment: getEnvWithDefault("ENVIRONMENT", "development"),
 		}
 
 		// Validate required configuration
 		if instance.JWTSecret == "default-secret-key-change-in-production" {
-			log.Println("Warning: Using default JWT secret. Please set MY_JWT_SECRET environment variable for production.")
+			log.Println("⚠️  WARNING: Using default JWT secret. Please set MY_JWT_SECRET environment variable for production.")
+			log.Println("⚠️  WARNING: JWT tokens will NOT be compatible with monolith unless secrets match!")
 		}
+
+		// Validate database configuration
+		if instance.DBHost == "" || instance.DBName == "" {
+			log.Println("⚠️  WARNING: Database configuration incomplete. Service may not start correctly.")
+		}
+
+		// Log configuration (mask sensitive data)
+		log.Printf("Configuration loaded:")
+		log.Printf("  Environment: %s", instance.Environment)
+		log.Printf("  HTTP Port: %s", instance.HTTPPort)
+		log.Printf("  gRPC Port: %s", instance.GRPCPort)
+		log.Printf("  Database: %s:%s/%s", instance.DBHost, instance.DBPort, instance.DBName)
+		log.Printf("  JWT Secret: %s", maskSecret(instance.JWTSecret))
+		log.Printf("  Redis: %s:%s", instance.RedisHost, instance.RedisPort)
 	})
 
 	return instance
@@ -77,4 +125,53 @@ func (c *Config) IsProduction() bool {
 // GetRedisAddress returns the complete Redis address
 func (c *Config) GetRedisAddress() string {
 	return c.RedisHost + ":" + c.RedisPort
+}
+
+// GetDatabaseConnectionString returns a PostgreSQL connection string
+func (c *Config) GetDatabaseConnectionString() string {
+	if c.DatabaseURL != "" {
+		return c.DatabaseURL
+	}
+	return "host=" + c.DBHost +
+		" port=" + c.DBPort +
+		" user=" + c.DBUser +
+		" password=" + c.DBPassword +
+		" dbname=" + c.DBName +
+		" sslmode=" + c.DBSSLMode
+}
+
+// Validate checks if all required configuration is present
+func (c *Config) Validate() error {
+	if c.JWTSecret == "" || c.JWTSecret == "default-secret-key-change-in-production" {
+		log.Println("⚠️  WARNING: JWT secret not properly configured!")
+	}
+
+	if c.DBHost == "" {
+		return fmt.Errorf("database host is required (DB_HOST)")
+	}
+
+	if c.DBName == "" {
+		return fmt.Errorf("database name is required (DB_NAME)")
+	}
+
+	if c.DBUser == "" {
+		return fmt.Errorf("database user is required (DB_USER)")
+	}
+
+	if c.DBPassword == "" {
+		log.Println("⚠️  WARNING: Database password not set (DB_PASSWORD)")
+	}
+
+	return nil
+}
+
+// maskSecret masks sensitive information for logging
+func maskSecret(secret string) string {
+	if secret == "" || secret == "default-secret-key-change-in-production" {
+		return secret
+	}
+	if len(secret) <= 8 {
+		return "***"
+	}
+	return secret[:4] + "..." + secret[len(secret)-4:]
 }
