@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: hub-user-db
+    environment:
+      POSTGRES_USER: hubuser
+      POSTGRES_PASSWORD: hubpassword
+      POSTGRES_DB: hub_users
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hubuser -d hub_users"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Hub User Service
+  hub-user-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hub-user-service
+    environment:
+      GRPC_PORT: 50051
+      HTTP_PORT: 8080
+      DATABASE_URL: postgresql://hubuser:hubpassword@postgres:5432/hub_users?sslmode=disable
+      MY_JWT_SECRET: ${MY_JWT_SECRET:-HubInv3stm3nts_S3cur3_JWT_K3y_2024_!@#$$%^}
+      ENVIRONMENT: development
+    ports:
+      - "50051:50051"  # gRPC
+      - "8080:8080"    # HTTP (health checks, metrics)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  default:
+    name: hub-network
+
