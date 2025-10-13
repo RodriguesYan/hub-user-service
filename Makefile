@@ -1,4 +1,4 @@
-.PHONY: help build run test test-coverage clean proto migrate-up migrate-down docker-build docker-run lint fmt
+.PHONY: help build run test test-coverage clean proto migrate-up migrate-down setup-db migrate-data setup-all docker-build docker-run lint fmt
 
 # Variables
 SERVICE_NAME=hub-user-service
@@ -63,6 +63,17 @@ migrate-create: ## Create a new migration file (usage: make migrate-create NAME=
 	@echo "Creating migration: $(NAME)"
 	@migrate create -ext sql -dir $(MIGRATION_DIR) -seq $(NAME)
 	@echo "Migration files created in $(MIGRATION_DIR)"
+
+setup-db: ## Setup separate database for user service
+	@echo "Setting up database..."
+	@./scripts/setup_database.sh
+
+migrate-data: ## Migrate user data from monolith
+	@echo "Migrating user data..."
+	@./scripts/migrate_users_data.sh
+
+setup-all: setup-db migrate-up migrate-data ## Complete setup (database + migrations + data)
+	@echo "✅ Complete setup finished!"
 
 docker-build: ## Build Docker image
 	@echo "Building Docker image..."
