@@ -4,6 +4,8 @@ import (
 	"errors"
 	"regexp"
 	"unicode"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Password represents a validated password value object
@@ -166,7 +168,17 @@ func (p *Password) Equals(other *Password) bool {
 	return p.value == other.value
 }
 
+// EqualsString compares a plain text password with the stored hash
+// This method assumes p.value contains a bcrypt hash (from database)
+// and other contains a plain text password (from login attempt)
 func (p *Password) EqualsString(other string) bool {
+	// If the stored value looks like a bcrypt hash, use bcrypt comparison
+	if len(p.value) == 60 && (p.value[:4] == "$2a$" || p.value[:4] == "$2b$" || p.value[:4] == "$2y$") {
+		err := bcrypt.CompareHashAndPassword([]byte(p.value), []byte(other))
+		return err == nil
+	}
+
+	// Fallback to plain text comparison (for testing or legacy data)
 	return p.value == other
 }
 
