@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"hub-user-service/internal/auth"
 	"hub-user-service/internal/grpc/proto"
 	"hub-user-service/internal/login/domain/model"
 	"hub-user-service/internal/login/domain/valueobject"
@@ -39,6 +40,14 @@ type MockAuthService struct {
 func (m *MockAuthService) VerifyToken(tokenString string, w http.ResponseWriter) (string, error) {
 	args := m.Called(tokenString, w)
 	return args.String(0), args.Error(1)
+}
+
+func (m *MockAuthService) VerifyTokenWithClaims(tokenString string) (*auth.TokenClaims, error) {
+	args := m.Called(tokenString)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*auth.TokenClaims), args.Error(1)
 }
 
 func (m *MockAuthService) CreateToken(userName string, userId string) (string, error) {
@@ -194,7 +203,11 @@ func TestAuthServer_ValidateToken_Success(t *testing.T) {
 	mockLoginUsecase := new(MockLoginUsecase)
 	mockAuthService := new(MockAuthService)
 
-	mockAuthService.On("VerifyToken", "valid-token-123", mock.Anything).Return("user456", nil)
+	tokenClaims := &auth.TokenClaims{
+		UserId:   "user456",
+		Username: "test@example.com",
+	}
+	mockAuthService.On("VerifyTokenWithClaims", "valid-token-123").Return(tokenClaims, nil)
 
 	server := NewAuthServer(mockLoginUsecase, mockAuthService)
 	ctx := context.Background()
@@ -214,6 +227,7 @@ func TestAuthServer_ValidateToken_Success(t *testing.T) {
 	assert.True(t, resp.IsValid)
 	assert.NotNil(t, resp.UserInfo)
 	assert.Equal(t, "user456", resp.UserInfo.UserId)
+	assert.Equal(t, "test@example.com", resp.UserInfo.Email)
 
 	mockAuthService.AssertExpectations(t)
 }
@@ -240,7 +254,7 @@ func TestAuthServer_ValidateToken_EmptyToken(t *testing.T) {
 	assert.Contains(t, resp.ApiResponse.Message, "token")
 	assert.Equal(t, int32(http.StatusBadRequest), resp.ApiResponse.Code)
 
-	mockAuthService.AssertNotCalled(t, "VerifyToken")
+	mockAuthService.AssertNotCalled(t, "VerifyTokenWithClaims")
 }
 
 func TestAuthServer_ValidateToken_InvalidToken(t *testing.T) {
@@ -248,7 +262,7 @@ func TestAuthServer_ValidateToken_InvalidToken(t *testing.T) {
 	mockLoginUsecase := new(MockLoginUsecase)
 	mockAuthService := new(MockAuthService)
 
-	mockAuthService.On("VerifyToken", "invalid-token", mock.Anything).Return("", errors.New("invalid token signature"))
+	mockAuthService.On("VerifyTokenWithClaims", "invalid-token").Return(nil, errors.New("invalid token signature"))
 
 	server := NewAuthServer(mockLoginUsecase, mockAuthService)
 	ctx := context.Background()
@@ -289,7 +303,11 @@ func TestAuthServer_CompleteAuthenticationFlow(t *testing.T) {
 	mockAuthService.On("CreateToken", "test@example.com", "user123").Return(generatedToken, nil)
 
 	// Setup mocks for token validation
-	mockAuthService.On("VerifyToken", generatedToken, mock.Anything).Return("user123", nil)
+	tokenClaims := &auth.TokenClaims{
+		UserId:   "user123",
+		Username: "test@example.com",
+	}
+	mockAuthService.On("VerifyTokenWithClaims", generatedToken).Return(tokenClaims, nil)
 
 	server := NewAuthServer(mockLoginUsecase, mockAuthService)
 	ctx := context.Background()
@@ -321,6 +339,7 @@ func TestAuthServer_CompleteAuthenticationFlow(t *testing.T) {
 	assert.True(t, validateResp.ApiResponse.Success)
 	assert.True(t, validateResp.IsValid)
 	assert.Equal(t, "user123", validateResp.UserInfo.UserId)
+	assert.Equal(t, "test@example.com", validateResp.UserInfo.Email)
 
 	mockLoginUsecase.AssertExpectations(t)
 	mockAuthService.AssertExpectations(t)
