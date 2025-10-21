@@ -7,8 +7,14 @@ import (
 	"net/http"
 )
 
+type TokenClaims struct {
+	UserId   string
+	Username string
+}
+
 type IAuthService interface {
 	VerifyToken(tokenString string, w http.ResponseWriter) (string, error)
+	VerifyTokenWithClaims(tokenString string) (*TokenClaims, error)
 	CreateToken(userName string, userId string) (string, error)
 }
 
@@ -37,6 +43,25 @@ func (s *AuthService) VerifyToken(tokenString string, w http.ResponseWriter) (st
 	userId, _ := claims["userId"].(string)
 
 	return userId, nil
+}
+
+func (s *AuthService) VerifyTokenWithClaims(tokenString string) (*TokenClaims, error) {
+	if tokenString == "" {
+		return nil, errors.New("missing authorization header")
+	}
+
+	claims, err := s.tokenService.ValidateToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+
+	userId, _ := claims["userId"].(string)
+	username, _ := claims["username"].(string)
+
+	return &TokenClaims{
+		UserId:   userId,
+		Username: username,
+	}, nil
 }
 
 func (s *AuthService) CreateToken(userName string, userId string) (string, error) {

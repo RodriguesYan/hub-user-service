@@ -61,7 +61,11 @@ func (s *TokenService) ValidateToken(tokenString string) (map[string]interface{}
 }
 
 func (s *TokenService) parseToken(token string) (*jwt.Token, error) {
-	token = token[len("Bearer "):]
+	// Strip "Bearer " prefix if present
+	if len(token) > 7 && token[:7] == "Bearer " {
+		token = token[7:]
+	}
+
 	cfg := config.Get()
 
 	jwtToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {

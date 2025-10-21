@@ -109,9 +109,7 @@ func (s *AuthServer) ValidateToken(ctx context.Context, req *proto.ValidateToken
 	}
 
 	// Verify token using existing auth service
-	// Note: VerifyToken expects http.ResponseWriter, but we don't need it for gRPC
-	// We'll pass nil and handle the response differently
-	userId, err := s.authService.VerifyToken(req.Token, nil)
+	claims, err := s.authService.VerifyTokenWithClaims(req.Token)
 	if err != nil {
 		return &proto.ValidateTokenResponse{
 			ApiResponse: &proto.APIResponse{
@@ -134,7 +132,8 @@ func (s *AuthServer) ValidateToken(ctx context.Context, req *proto.ValidateToken
 		},
 		IsValid: true,
 		UserInfo: &proto.UserInfo{
-			UserId: userId,
+			UserId: claims.UserId,
+			Email:  claims.Username,
 		},
 		ExpiresAt: 0, // TODO: Extract expiration from token if needed
 	}, nil
